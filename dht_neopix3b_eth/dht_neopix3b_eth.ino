@@ -35,6 +35,7 @@ float humidity; float temperature;
 unsigned long nextSensorRead;
 unsigned long nextPagePost;
 char hum[6]; char temp[6];
+int mnt, mnh, mxt, mxh;
 
 // initialize the library instance:
 EthernetClient client;
@@ -42,8 +43,8 @@ EthernetClient client;
 byte mac[] = { 0xDE, 0xAD, 0xBE, 0xEF, 0xFE, 0xED };
 //byte mac[] = { 0xBA, 0xDD, 0xCA, 0xFE, 0xFE, 0xED };
 IPAddress ip(192, 168, 1, 224);
-char server[] = "192.168.1.3";
-//char server[] = "192.168.1.172";
+//char server[] = "192.168.1.3";
+char server[] = "192.168.1.172";
 //unsigned int port = 8282;
 unsigned int port = 80;
 char pageName[] = "/temperature/web/device/upload/";
@@ -51,14 +52,16 @@ char pageName[] = "/temperature/web/device/upload/";
 String serverResponse;
 bool hasNewSensorValue = false;
 
-int freeRam () {
+void printFreeRam () {
   extern int __heap_start, *__brkval;
   int v;
-  return (int) &v - (__brkval == 0 ? (int) &__heap_start : (int) __brkval);
+  Serial.print("Free RAM: ");
+  Serial.println((int) &v - (__brkval == 0 ? (int) &__heap_start : (int) __brkval));
 }
 
 void setup() {
-  Serial.begin(9600); Serial.println(F("Booting ..."));
+  Serial.begin(9600);
+  Serial.println(F("Booting ...\nInit Display... \nInit Ethernet..."));
 
   initDispaly();
   initEthernet();
@@ -69,7 +72,7 @@ void setup() {
 
 void loop() {
   if (((signed long)(millis() - nextSensorRead)) > 0) {
-    Serial.println(freeRam());
+    printFreeRam();
     humidity = dht.readHumidity();
     temperature = dht.readTemperature();
     hasNewSensorValue = true;
@@ -81,6 +84,7 @@ void loop() {
   if (((signed long)(millis() - nextPagePost)) > 0 && hasNewSensorValue) {
     char postBuffer[80];
     // postBuffer must be url encoded.
+    UpdateAlarm();
     sprintf(postBuffer, "mac=%s&Temperature=%s&Humidity=%s", getMacAddress().c_str(), temp, hum);
     Serial.println(postBuffer);
     if (!postPage(server, port, pageName, postBuffer)) {
@@ -90,12 +94,13 @@ void loop() {
     {
       hasNewSensorValue = false;
     }
+
     nextPagePost = millis() + nextPagePost;
   }
 }
 
 void initDispaly() {
-  Serial.println(F("Initializing display ..."));
+  //Serial.println(F("Initializing display ..."));
   pixels.begin();
   tft.initR(INITR_BLACKTAB);   // initialize a ST7735S chip, black tab
   tft.setTextWrap(false); // Allow text to run off right edge
@@ -105,16 +110,16 @@ void initDispaly() {
 
 void initEthernet() {
   // start the Ethernet connection:
-  Serial.println(F("Starting ethernet ..."));
+  //Serial.println(F("Starting ethernet ..."));
   if (Ethernet.begin(mac) == 0) {
-    Serial.println(F("Failed to configure Ethernet using DHCP, trying to use pre configured IP"));
+    //Serial.println(F("Failed to configure Ethernet using DHCP, trying to use pre configured IP"));
     // no point in carrying on, so do nothing forevermore:
     // try to congifure using IP address instead of DHCP:
     Ethernet.begin(mac, ip);
   }
   // print the Ethernet board/shield's IP address:
-  Serial.print(F("localIP address: "));
-  Serial.println(Ethernet.localIP());
+  //Serial.print(F("localIP address: "));
+  //Serial.println(Ethernet.localIP());
 }
 
 //Mac address to string (For display purpose)
@@ -135,11 +140,11 @@ String getIpAddress() {
 //Connect to a server and do a POST
 byte postPage(char* domainBuffer, int thisPort, char* page, char* thisData)
 {
-  Serial.println(F("connecting to remote server..."));
+  //Serial.println(F("connecting to remote server..."));
 
   if (client.connect(domainBuffer, thisPort) == 1)
   {
-    Serial.println(F("connected"));
+    //Serial.println(F("connected"));
     char outBuffer[80];
     // send the header
     sprintf(outBuffer, "POST %s HTTP/1.1", page);
@@ -153,7 +158,7 @@ byte postPage(char* domainBuffer, int thisPort, char* page, char* thisData)
   }
   else
   {
-    Serial.println(F("remote server connection failed"));
+    //Serial.println(F("remote server connection failed"));
     return 0;
   }
 
@@ -173,20 +178,29 @@ byte postPage(char* domainBuffer, int thisPort, char* page, char* thisData)
     connectLoop++;
     if (connectLoop > 10000)
     {
-      Serial.println();
+      //Serial.println();
       Serial.println(F("Timeout"));
       client.stop();
     }
   }
-
+  Serial.println(serverResponse);
+  //Serial.println(F("--------------------"));
   nextPagePost = getValue("i", serverResponse);
-  Serial.print(nextPagePost);
-  /*int startIndex = serverResponse.indexOf('#interval=');
-  if (startIndex > 0) {
-    int lastIndex = serverResponse.lastIndexOf('#');
-    Serial.println(serverResponse.substring(startIndex + 1, lastIndex));
-    nextPagePost = serverResponse.substring(startIndex + 1, lastIndex).toInt();
-  }*/
+  mnt = getValue("mnt", serverResponse);
+  mxt = getValue("mxt", serverResponse);
+  mnh = getValue("mnh", serverResponse);
+  mxh = getValue("mxh", serverResponse);
+  Serial.print(F("nextPagePost : "));
+  Serial.println(nextPagePost);
+  Serial.print(F("mnt : "));
+  Serial.println(mnt);
+  Serial.print(F("mxt : "));
+  Serial.println(mxt);
+  Serial.print(F("mnh : "));
+  Serial.println(mnh);
+  Serial.print(F("mxh : "));
+  Serial.println(mxh);
+
   serverResponse = "";
   Serial.println(F("disconnecting."));
   client.stop();
@@ -201,15 +215,17 @@ int getValue(String key, String data) {
     startIndex = startIndex + indexKey.length();
     String remaningData = data.substring(startIndex);
     int lastIndex = remaningData.indexOf(';');
-    if (lastIndex > -1) {
+    if (lastIndex > -1)
+    {
       String value = remaningData.substring(0, lastIndex);
-      if (value.length() > 0) {
+      if (value.length() > 0)
+      {
         return value.toInt();
       }
     }
   }
 
-  Serial.println("Parse error, using fallback value");
+  Serial.println(F("Parse error, using fallback value"));
   //default fallback values
   if (key == "i")return 5000;
   if (key == "mnt")return 20;
@@ -244,4 +260,43 @@ void updateDisplay(float humidity, float temperature) {
   char diplayBuffer[80];
   sprintf(diplayBuffer, " Server: %s\n\n Mac: %s\n\n LocalIP: %s", server, getMacAddress().c_str(), getIpAddress().c_str());
   tft.println(diplayBuffer);
+}
+/*
+int CharArrayToInt(char* cValue){
+  return atoi(cValue);
+}*/
+
+void UpdateAlarm() {
+  if (atoi(hum) > mxh) {
+    showalarm (3, 100, 100, 0, 1, 1, 1, 20, 5);
+    Serial.println(F("showalarm hum > mxh"));
+  }
+  if (atoi(hum) < mnh) {
+    showalarm (3, 0, 200, 0, 1, 1, 1, 80, 5);
+    Serial.println(F("showalarm hum < mnh"));
+  }
+  if (atoi(temp) > mxt) {
+    showalarm (0, 100, 0, 0, 1, 1, 1, 20, 5);
+    Serial.println(F("showalarm temp > mxt"));
+  }
+  if (atoi(temp) < mnt) {
+    showalarm (0, 0, 0, 200, 1, 1, 1, 80, 5);
+    Serial.println(F("showalarm temp < mnt"));
+  }
+}
+
+void showalarm(int up, int r, int g, int b, int r_off, int g_off, int b_off , int del, int times)
+{
+  //Serial.print("alarm: "); //Serial.println(comment);
+  // pixels.Color takes RGB values, from 0,0,0 up to 255,255,255
+  for (int k = 0; k < times; k++) {
+    for (int i = 0; i < 3; i++) {
+      pixels.setPixelColor(i + up, pixels.Color(r, g, b));
+    }
+    pixels.show(); delay(del);
+    for (int i = 3; i >= 0; i--) {
+      pixels.setPixelColor(i + up, pixels.Color(r_off, g_off, b_off));
+    }
+    pixels.show(); delay(del);
+  }
 }
